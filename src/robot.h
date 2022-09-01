@@ -7,31 +7,19 @@
 namespace robot
 {
 
-    class TcurveDrive :public aris::core::CloneObject<TcurveDrive,aris::plan::Plan>
-    {
-    public:
-        auto virtual prepareNrt()->void;
-        auto virtual executeRT()->int;
-        auto virtual collectNrt()->void;
+class MoveJoint : public aris::core::CloneObject<MoveJoint, aris::plan::Plan>
+{
+public:
+    auto virtual prepareNrt()->void;
+    auto virtual executeRT()->int;
+    auto virtual collectNrt()->void;
 
-        virtual ~TcurveDrive();
-        explicit TcurveDrive(const std::string &name = "motor_drive");
-
-    private:
-        double cef_;
-    };
+    explicit MoveJoint(const std::string &name = "MoveJiont");
+private:
+    double dir_;
+};
 
 
-    class MoveJS : public aris::core::CloneObject<MoveJS, aris::plan::Plan>
-      {
-      public:
-          auto virtual prepareNrt()->void;
-          auto virtual executeRT()->int;
-          auto virtual collectNrt()->void;
-
-          explicit MoveJS(const std::string &name = "MoveJS_plan");
-
-      };
 
     class VelDrive : public aris::core::CloneObject<VelDrive,aris::plan::Plan>
     {
@@ -48,8 +36,24 @@ namespace robot
     };
 
 
-    auto createControllerMotor()->std::unique_ptr<aris::control::Controller>;
-    auto createPlanMotor()->std::unique_ptr<aris::plan::PlanRoot>;
+    class TcurveDrive :public aris::core::CloneObject<TcurveDrive,aris::plan::Plan>
+    {
+    public:
+        auto virtual prepareNrt()->void;
+        auto virtual executeRT()->int;
+        auto virtual collectNrt()->void;
+
+        virtual ~TcurveDrive();
+        explicit TcurveDrive(const std::string &name = "motor_drive");
+
+    private:
+        double cef_;
+    };
+
+
+    auto createMasterROSMotorTest()->std::unique_ptr<aris::control::Master>;
+    auto createControllerROSMotorTest()->std::unique_ptr<aris::control::Controller>;
+    auto createPlanROSMotorTest()->std::unique_ptr<aris::plan::PlanRoot>;
 }
 
 #endif
