@@ -50,6 +50,8 @@ auto TcurveDrive::executeRT()->int //进入实时线程
     if (count() % 10 == 0)
     {
         mout() << "pos" << ":" << controller()->motorPool()[0].actualPos() << "\t";
+        mout() << "pos" << ":" << controller()->motorPool()[0].actualCur() << "\t";
+        mout() << "pos" << ":" << controller()->motorPool()[0].actualToq() << "\t";
         mout() << "vel" << ":" << controller()->motorPool()[0].actualVel() << std::endl;
     }
     //log//
@@ -111,6 +113,127 @@ VelDrive::VelDrive(const std::string &name)
 }
 VelDrive::~VelDrive() = default;  //析构函数
 
+
+
+
+// 单关节正弦往复轨迹 //
+struct MoveJSParam
+{
+    double j1;
+    double time;
+    uint32_t timenum;
+};
+auto MoveJS::prepareNrt()->void
+{
+    MoveJSParam param;
+
+    param.j1 = 0.0;
+    param.time = 0.0;
+    param.timenum = 0;
+
+    for (auto &p : cmdParams())
+    {
+        if (p.first == "j1")
+        {
+            if (p.second == "current_pos")
+            {
+                param.j1 = controller()->motorPool()[0].actualPos();
+            }
+            else
+            {
+                param.j1 = doubleParam(p.first);
+            }
+
+        }
+        else if (p.first == "time")
+        {
+            param.time = doubleParam(p.first);
+        }
+        else if (p.first == "timenum")
+        {
+            param.timenum = int32Param(p.first);
+        }
+    }
+    this->param() = param;
+    std::vector<std::pair<std::string, std::any>> ret_value;
+    for (auto &option : motorOptions())	option |= NOT_CHECK_POS_CONTINUOUS_SECOND_ORDER|NOT_CHECK_POS_CONTINUOUS;
+    ret() = ret_value;
+}
+auto MoveJS::executeRT()->int
+{
+
+    auto &param = std::any_cast<MoveJSParam&>(this->param());
+    auto time = static_cast<int32_t>(param.time * 1000);
+    auto totaltime = static_cast<int32_t>(param.timenum * time);
+    static double begin_pjs;
+    static double step_pjs;
+    // 访问主站 //
+
+
+    if ((1 <= count()) && (count() <= time / 2))
+    {
+        // 获取当前起始点位置 //
+        if (count() == 1)
+        {
+            begin_pjs = controller()->motorPool()[0].actualPos();
+            step_pjs = controller()->motorPool()[0].actualPos();
+            this->master()->logFileRawName("moveJS");//建立记录数据的文件夹
+        }
+        step_pjs = begin_pjs + param.j1 * (1 - std::cos(2 * PI*count() / time)) / 2;
+        controller()->motorPool().at(0).setTargetPos(step_pjs);
+    }
+    else if ((time / 2 < count()) && (count() <= totaltime - time / 2))
+    {
+        // 获取当前起始点位置 //
+        if (count() == time / 2 + 1)
+        {
+            begin_pjs = controller()->motorPool()[0].actualPos();
+            step_pjs = controller()->motorPool()[0].actualPos();
+        }
+
+        step_pjs = begin_pjs - 2 * param.j1 * (1 - std::cos(2 * PI*(count() - time / 2) / time)) / 2;
+        controller()->motorPool().at(0).setTargetPos(step_pjs);
+    }
+    else if ((totaltime - time / 2 < count()) && (count() <= totaltime))
+    {
+        // 获取当前起始点位置 //
+        if (count() == totaltime - time / 2 + 1)
+        {
+            begin_pjs = controller()->motorPool()[0].actualPos();
+            step_pjs = controller()->motorPool()[0].actualPos();
+        }
+        step_pjs = begin_pjs - param.j1 * (1 - std::cos(2 * PI*(count() - totaltime + time / 2) / time)) / 2;
+        controller()->motorPool().at(0).setTargetPos(step_pjs);
+    }
+
+    // 打印 //
+    if (count() % 10 == 0)
+    {
+        mout() << "pos" << ":" << controller()->motorPool()[0].actualPos() << "\t";
+        mout() << "vel" << ":" << controller()->motorPool()[0].actualVel() << std::endl;
+    }
+
+    // log //
+
+    lout() << controller()->motorPool()[0].actualPos() <<"\t";
+    lout() << controller()->motorPool()[0].actualVel() <<std::endl;
+
+    return totaltime - count();
+}
+auto MoveJS::collectNrt()->void {}
+MoveJS::MoveJS(const std::string &name)
+{
+    aris::core::fromXmlString(command(),
+        "<Command name=\"moveJS\">"
+        "	<GroupParam>"
+        "		<Param name=\"j1\" default=\"current_pos\"/>"
+        "		<Param name=\"time\" default=\"1.0\" abbreviation=\"t\"/>"
+        "		<Param name=\"timenum\" default=\"2\" abbreviation=\"n\"/>"
+        "	</GroupParam>"
+        "</Command>");
+}
+
+
 auto createMasterROSMotorTest()->std::unique_ptr<aris::control::Master>{
     std::unique_ptr<aris::control::Master> master(new aris::control::EthercatMaster);
 
@@ -127,26 +250,41 @@ auto createMasterROSMotorTest()->std::unique_ptr<aris::control::Master>{
             "		<SyncManager is_tx=\"true\"/>"
             "		<SyncManager is_tx=\"false\">"
             "			<Pdo index=\"0x1600\" is_tx=\"false\">"
-            "				<PdoEntry name=\"control_word\" index=\"0x6040\" subindex=\"0x00\" size=\"16\"/>"
-            "				<PdoEntry name=\"mode_of_operation\" index=\"0x6060\" subindex=\"0x00\" size=\"8\"/>"
-            "				<PdoEntry name=\"target_pos\" index=\"0x607A\" subindex=\"0x00\" size=\"32\"/>"
-            "				<PdoEntry name=\"target_vel\" index=\"0x60B8\" subindex=\"0x00\" size=\"32\"/>"
-            "				<PdoEntry name=\"target_vel\" index=\"0x60FE\" subindex=\"0x01\" size=\"32\"/>"
-            "				<PdoEntry name=\"target_vel\" index=\"0x60FE\" subindex=\"0x02\" size=\"32\"/>"
+//            "				<PdoEntry name=\"control_word\" index=\"0x6040\" subindex=\"0x00\" size=\"16\"/>"
+//            "				<PdoEntry name=\"mode_of_operation\" index=\"0x6060\" subindex=\"0x00\" size=\"8\"/>"
+//            "				<PdoEntry name=\"target_pos\" index=\"0x607A\" subindex=\"0x00\" size=\"32\"/>"
+//            "				<PdoEntry name=\"target_vel\" index=\"0x60B8\" subindex=\"0x00\" size=\"32\"/>"
+//            "				<PdoEntry name=\"target_vel\" index=\"0x60FE\" subindex=\"0x01\" size=\"32\"/>"
+//            "				<PdoEntry name=\"target_vel\" index=\"0x60FE\" subindex=\"0x02\" size=\"32\"/>"
+                                                                     "				<PdoEntry name=\"target_pos\" index=\"0x607A\" subindex=\"0x00\" size=\"32\"/>"
+                                                                     "				<PdoEntry name=\"target_vel\" index=\"0x60FF\" subindex=\"0x00\" size=\"32\"/>"
+                                                         //            "				<PdoEntry name=\"targer_toq\" index=\"0x6071\" subindex=\"0x00\" size=\"16\"/>"
+                                                         //            "				<PdoEntry name=\"max_toq\" index=\"0x6072\" subindex=\"0x00\" size=\"16\"/>"
+                                                                     "				<PdoEntry name=\"control_word\" index=\"0x6040\" subindex=\"0x00\" size=\"16\"/>"
+                                                                     "				<PdoEntry name=\"mode_of_operation\" index=\"0x6060\" subindex=\"0x00\" size=\"8\"/>"
+
             "			</Pdo>"
             "		</SyncManager>"
             "		<SyncManager is_tx=\"true\">"
             "			<Pdo index=\"0x1a00\" is_tx=\"true\">"
-"                <PdoEntry name=\"object\" index=\"0x603f\" subindex=\"0x00\" size=\"16\"/>"
-"                <PdoEntry name=\"object\" index=\"0x6041\" subindex=\"0x00\" size=\"16\"/>"
-"                <PdoEntry name=\"object\" index=\"0x6061\" subindex=\"0x00\" size=\"8\"/>"
-"                <PdoEntry name=\"object\" index=\"0x6064\" subindex=\"0x00\" size=\"32\"/>"
-"                <PdoEntry name=\"object\" index=\"0x60b9\" subindex=\"0x00\" size=\"16\"/>"
-"                <PdoEntry name=\"object\" index=\"0x60ba\" subindex=\"0x00\" size=\"32\"/>"
-"                <PdoEntry name=\"object\" index=\"0x60bb\" subindex=\"0x00\" size=\"32\"/>"
-"                <PdoEntry name=\"object\" index=\"0x60bc\" subindex=\"0x00\" size=\"32\"/>"
-"                <PdoEntry name=\"object\" index=\"0x60bd\" subindex=\"0x00\" size=\"32\"/>"
-"                <PdoEntry name=\"object\" index=\"0x60fd\" subindex=\"0x00\" size=\"32\"/>"
+//"                <PdoEntry name=\"object\" index=\"0x603f\" subindex=\"0x00\" size=\"16\"/>"
+//"                <PdoEntry name=\"object\" index=\"0x6041\" subindex=\"0x00\" size=\"16\"/>"
+//"                <PdoEntry name=\"object\" index=\"0x6061\" subindex=\"0x00\" size=\"8\"/>"
+//"                <PdoEntry name=\"object\" index=\"0x6064\" subindex=\"0x00\" size=\"32\"/>"
+//"                <PdoEntry name=\"object\" index=\"0x60b9\" subindex=\"0x00\" size=\"16\"/>"
+//"                <PdoEntry name=\"object\" index=\"0x60ba\" subindex=\"0x00\" size=\"32\"/>"
+//"                <PdoEntry name=\"object\" index=\"0x60bb\" subindex=\"0x00\" size=\"32\"/>"
+//"                <PdoEntry name=\"object\" index=\"0x60bc\" subindex=\"0x00\" size=\"32\"/>"
+//"                <PdoEntry name=\"object\" index=\"0x60bd\" subindex=\"0x00\" size=\"32\"/>"
+//"                <PdoEntry name=\"object\" index=\"0x60fd\" subindex=\"0x00\" size=\"32\"/>"
+
+
+                                                                     "				<PdoEntry name=\"status_word\" index=\"0x6041\" subindex=\"0x00\" size=\"16\"/>"
+                                                                     "				<PdoEntry name=\"mode_of_display\" index=\"0x6061\" subindex=\"0x00\" size=\"8\"/>"
+                                                                     "				<PdoEntry name=\"pos_actual_value\" index=\"0x6064\" subindex=\"0x00\" size=\"32\"/>"
+                                                                     "				<PdoEntry name=\"vel_actual_value\" index=\"0x606c\" subindex=\"0x00\" size=\"32\"/>"
+                                                                     "				<PdoEntry name=\"toq_actual_value\" index=\"0x6077\" subindex=\"0x00\" size=\"16\"/>"
+                                                                     "				<PdoEntry name=\"digital_inputs\" index=\"0x60FD\" subindex=\"0x00\" size=\"32\"/>"
             "			</Pdo>"
             "		</SyncManager>"
             "	</SyncManagerPoolObject>"
@@ -166,7 +304,7 @@ auto createMasterROSMotorTest()->std::unique_ptr<aris::control::Master>{
     #endif
     #ifndef WIN32
             dynamic_cast<aris::control::EthercatSlave&>(master->slavePool().back()).scanInfoForCurrentSlave();
-            dynamic_cast<aris::control::EthercatSlave&>(master->slavePool().back()).scanPdoForCurrentSlave();
+            //dynamic_cast<aris::control::EthercatSlave&>(master->slavePool().back()).scanPdoForCurrentSlave();  //扫描电机pdo
     #endif
 
        s.setSync0ShiftNs(900000);
@@ -258,6 +396,7 @@ auto createPlanROSMotorTest()->std::unique_ptr<aris::plan::PlanRoot>
 
     plan_root->planPool().add<VelDrive>();
     plan_root->planPool().add<TcurveDrive>();
+    plan_root->planPool().add<MoveJS>();
 
 
     return plan_root;

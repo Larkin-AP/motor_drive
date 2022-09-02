@@ -7,18 +7,6 @@
 namespace robot
 {
 
-class MoveJoint : public aris::core::CloneObject<MoveJoint, aris::plan::Plan>
-{
-public:
-    auto virtual prepareNrt()->void;
-    auto virtual executeRT()->int;
-    auto virtual collectNrt()->void;
-
-    explicit MoveJoint(const std::string &name = "MoveJiont");
-private:
-    double dir_;
-};
-
 
 
     class VelDrive : public aris::core::CloneObject<VelDrive,aris::plan::Plan>
@@ -50,6 +38,17 @@ private:
         double cef_;
     };
 
+
+    class MoveJS : public aris::core::CloneObject<MoveJS, aris::plan::Plan>
+      {
+      public:
+          auto virtual prepareNrt()->void;
+          auto virtual executeRT()->int;
+          auto virtual collectNrt()->void;
+
+          explicit MoveJS(const std::string &name = "MoveJS_plan");
+
+      };
 
     auto createMasterROSMotorTest()->std::unique_ptr<aris::control::Master>;
     auto createControllerROSMotorTest()->std::unique_ptr<aris::control::Controller>;
